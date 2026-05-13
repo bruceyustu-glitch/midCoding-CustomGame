@@ -1,0 +1,291 @@
+"""
+Basic Platformer Game Example
+Demonstrates: Player, Platforms, Coins, Enemy, Goal, Score, Win/Lose conditions
+"""
+
+import pygame
+import sys
+
+# Initialize Pygame
+pygame.init()
+
+# Screen dimensions
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+LEVEL_WIDTH = 2400
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+YELLOW = (255, 255, 0)
+ORANGE = (255, 165, 0)
+# Create screen
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Scrolling Platformer Game")
+clock = pygame.time.Clock()
+
+# ===== PLAYER =====
+class Player(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((30, 40))
+        self.image.fill(ORANGE)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        
+        self.vel_y = 0
+        self.vel_x = 0
+        self.is_jumping = False
+        self.gravity = 0.8
+        self.jump_power = -15
+        self.speed = 5
+        self.level_width = LEVEL_WIDTH
+    def handle_input(self, keys):
+        if keys[pygame.K_LEFT]:
+            self.vel_x = -self.speed
+        elif keys[pygame.K_RIGHT]:
+            self.vel_x = self.speed
+        else:
+            self.vel_x = 0
+        
+        if keys[pygame.K_SPACE] and not self.is_jumping:
+            self.vel_y = self.jump_power
+            self.is_jumping = True
+    
+    def apply_gravity(self):
+        self.vel_y += self.gravity
+        self.rect.y += self.vel_y
+        
+        # Check if player fell off screen
+        if self.rect.y > SCREEN_HEIGHT:
+            return False
+        return True
+    
+    def update(self, platforms):
+        self.rect.x += self.vel_x
+        
+        # Keep player inside the world boundaries
+        if self.rect.x < 0:
+            self.rect.x = 0
+        if self.rect.x > self.level_width - self.rect.width:
+            self.rect.x = self.level_width - self.rect.width
+        
+        # Check collision with platforms
+        for platform in platforms:
+            if self.vel_y > 0 and self.rect.bottom >= platform.rect.top and self.rect.top < platform.rect.top:
+                if self.rect.right > platform.rect.left and self.rect.left < platform.rect.right:
+                    self.rect.bottom = platform.rect.top
+                    self.vel_y = 0
+                    self.is_jumping = False
+    
+    def draw(self, surface, camera_x):
+        surface.blit(self.image, (self.rect.x - camera_x, self.rect.y))
+
+
+# ===== PLATFORM =====
+class Platform(pygame.sprite.Sprite):
+    def __init__(self, x, y, width, height):
+        super().__init__()
+        self.image = pygame.Surface((width, height))
+        self.image.fill(BLACK)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+    
+    def draw(self, surface, camera_x):
+        surface.blit(self.image, (self.rect.x - camera_x, self.rect.y))
+
+
+# ===== COIN (Collectible) =====
+class Coin(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((20, 20))
+        self.image.fill(YELLOW)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.collected = False
+    
+    def draw(self, surface, camera_x):
+        if not self.collected:
+            surface.blit(self.image, (self.rect.x - camera_x, self.rect.y))
+
+
+# ===== ENEMY =====
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((50, 10000))
+        self.image.fill(RED)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        
+        self.speed = 18
+        self.direction = 1
+        self.left_bound = x - 1000
+        self.right_bound = x + 500
+class Enemy(pygame.sprite.Sprite):
+    def __init__(self, x, y, patrol_range=90):
+        super().__init__()
+        self.image = pygame.Surface((32, 28))
+        self.image.fill(RED)
+        self.rect = self.image.get_rect(topleft=(x, y))
+
+        self.speed = 2
+        self.direction = 1
+        self.left_bound = x - patrol_range
+        self.right_bound = x + patrol_range
+        self.alive = True
+    
+    def update(self):
+        self.rect.x += self.speed * self.direction
+        
+        # Change direction at bounds
+        if self.rect.x <= self.left_bound or self.rect.x >= self.right_bound:
+            self.direction *= -1
+    
+    def draw(self, surface, camera_x):
+        surface.blit(self.image, (self.rect.x - camera_x, self.rect.y))
+
+
+# ===== GOAL/FINISH AREA =====
+class Goal(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.image = pygame.Surface((50, 50))
+        self.image.fill(ORANGE)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+    
+    def draw(self, surface, camera_x):
+        surface.blit(self.image, (self.rect.x - camera_x, self.rect.y))
+
+
+# ===== GAME =====
+class Game:
+    def __init__(self):
+        self.player = Player(50, 400)
+        self.camera_x = 0
+        
+        # Create platforms
+        self.platforms = [
+            Platform(0, SCREEN_HEIGHT - 40, LEVEL_WIDTH, 40),  # Ground
+            Platform(200, 450, 150, 20),
+            Platform(500, 400, 150, 20),
+            Platform(100, 300, 150, 20),
+            Platform(600, 300, 150, 20),
+            Platform(900, 500, 140, 20),
+            Platform(1150, 420, 150, 20),
+            Platform(1400, 350, 150, 20),
+            Platform(1700, 460, 140, 20),
+            Platform(1950, 320, 180, 20),
+        ]
+        
+        # Create coin
+        self.coin = Coin(1200, 370)
+        
+        # Create enemy
+        self.enemy = Enemy(1550, 430)
+        # Create goal
+        self.goal = Goal(2200, 260)
+        
+        self.score = 0
+        self.game_over = False
+        self.won = False
+    
+    def handle_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+        return True
+    
+    def update(self):
+        keys = pygame.key.get_pressed()
+        self.player.handle_input(keys)
+        
+        if not self.player.apply_gravity():
+            self.game_over = True
+        for enemy in self.enemies:
+            enemy.update()
+        self.game_over = True
+        
+        self.player.update(self.platforms)
+        self.enemy.update()
+        
+        # Check coin collision
+        if (not self.coin.collected and 
+            self.player.rect.colliderect(self.coin.rect)):
+            self.coin.collected = True
+            self.score += 10
+        
+        # Check enemy collision (lose condition)
+        if self.player.rect.colliderect(self.enemy.rect):
+            self.game_over = True
+        
+        # Check goal collision (win condition)
+        if self.player.rect.colliderect(self.goal.rect):
+            self.won = True
+
+        # Move camera to follow the player, centered when possible.
+        target_camera_x = self.player.rect.centerx - SCREEN_WIDTH // 2
+        self.camera_x = max(0, min(target_camera_x, LEVEL_WIDTH - SCREEN_WIDTH))
+    
+    def draw(self):
+        screen.fill(WHITE)
+        
+        # Draw game elements
+        for platform in self.platforms:
+            platform.draw(screen, self.camera_x)
+        
+        self.coin.draw(screen, self.camera_x)
+        self.enemy.draw(screen, self.camera_x)
+        self.goal.draw(screen, self.camera_x)
+        self.player.draw(screen, self.camera_x)
+        
+        # Draw score
+        font = pygame.font.Font(None, 36)
+        score_text = font.render(f"Score: {self.score}", True, BLACK)
+        screen.blit(score_text, (10, 10))
+        
+        # Draw game state
+        if self.game_over:
+            game_over_text = font.render("GAME OVER - Press R to Restart", True, RED)
+            screen.blit(game_over_text, (200, 250))
+        
+        if self.won:
+            win_text = font.render("YOU WIN! - Press R to Restart", True, GREEN)
+            screen.blit(win_text, (200, 250))
+        
+        pygame.display.flip()
+    
+    def run(self):
+        running = True
+        while running:
+            running = self.handle_events()
+            
+            if not self.game_over and not self.won:
+                self.update()
+            
+            # Check for restart
+            keys = pygame.key.get_pressed()
+            if (self.game_over or self.won) and keys[pygame.K_r]:
+                self.__init__()
+            
+            self.draw()
+            clock.tick(60)
+        
+        pygame.quit()
+        sys.exit()
+
+
+# Run the game
+if __name__ == "__main__":
+    game = Game()
+    game.run()
